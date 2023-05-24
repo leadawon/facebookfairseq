@@ -27,10 +27,19 @@ _active_aggregators = OrderedDict()
 _active_aggregators_cnt = defaultdict(lambda: 0)
 
 
-# The "default" aggregator observes all logged values.
-_aggregators["default"] = MetersDict()
-_active_aggregators["default"] = _aggregators["default"]
-_active_aggregators_cnt["default"] = 1
+def reset() -> None:
+    """Reset all metrics aggregators."""
+    _aggregators.clear()
+    _active_aggregators.clear()
+    _active_aggregators_cnt.clear()
+
+    # The "default" aggregator observes all logged values.
+    _aggregators["default"] = MetersDict()
+    _active_aggregators["default"] = _aggregators["default"]
+    _active_aggregators_cnt["default"] = 1
+
+
+reset()
 
 
 @contextlib.contextmanager
@@ -137,7 +146,12 @@ def log_derived(key: str, fn: Callable[[MetersDict], float], priority: int = 20)
             agg.add_meter(key, MetersDict._DerivedMeter(fn), priority)
 
 
-def log_speed(key: str, value: float, priority: int = 30, round: Optional[int] = None):
+def log_speed(
+    key: str,
+    value: float,
+    priority: int = 30,
+    round: Optional[int] = None,
+):
     """Log the rate of some quantity per second.
 
     Args:
@@ -170,7 +184,7 @@ def log_start_time(key: str, priority: int = 40, round: Optional[int] = None):
         agg[key].start()
 
 
-def log_stop_time(key: str, weight: float = 0.):
+def log_stop_time(key: str, weight: float = 0., prehook=None):
     """Log the duration of some event in seconds.
 
     The duration will be computed since :func:`log_start_time` was called.
@@ -179,9 +193,13 @@ def log_stop_time(key: str, weight: float = 0.):
     Args:
         key (str): name of the field to log
         weight (float): weight that this time contributes to the average
+        prehook (function, no arguments): will be called before the timer
+        is stopped. For example, use prehook=torch.cuda.synchronize to
+        make sure all gpu operations are done before timer is stopped.
     """
     for agg in get_active_aggregators():
-        agg[key].stop(weight)
+        if key in agg:
+            agg[key].stop(weight, prehook)
 
 
 def log_custom(
